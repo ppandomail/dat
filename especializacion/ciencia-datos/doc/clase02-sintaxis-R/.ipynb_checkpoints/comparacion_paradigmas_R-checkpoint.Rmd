@@ -1,0 +1,1107 @@
+---
+title: "Comparación de Paradigmas en R: Base vs Tidyverse vs data.table"
+subtitle: "Análisis de Rendimiento y Sintaxis"
+author: "Aplicaciones de Ciencia de Datos - Universidad Nacional del Oeste"
+date: "`r format(Sys.Date(), '%d de %B de %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 3
+    number_sections: true
+    theme: cosmo
+    highlight: tango
+    code_folding: show
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 10,
+  fig.height = 6,
+  cache = FALSE
+)
+
+# Configurar opciones de salida
+options(scipen = 999)  # Evitar notación científica
+```
+
+<style>
+.info-box {
+  background-color: #e3f2fd;
+  border-left: 5px solid #2196F3;
+  padding: 15px;
+  margin: 20px 0;
+}
+
+.warning-box {
+  background-color: #fff3e0;
+  border-left: 5px solid #ff9800;
+  padding: 15px;
+  margin: 20px 0;
+}
+
+.success-box {
+  background-color: #e8f5e9;
+  border-left: 5px solid #4caf50;
+  padding: 15px;
+  margin: 20px 0;
+}
+
+.codigo-explicacion {
+  background-color: #f5f5f5;
+  padding: 10px;
+  border-left: 3px solid #666;
+  margin: 10px 0;
+  font-style: italic;
+}
+
+h1, h2 {
+  color: #003366;
+}
+
+h3 {
+  color: #0066cc;
+}
+</style>
+
+---
+
+# Introducción {.tabset}
+
+## Contexto
+
+En el análisis de datos con R, existen tres paradigmas principales para la manipulación de datos:
+
+1. **R Base**: Funciones incluidas en la instalación estándar de R
+2. **Tidyverse**: Colección moderna de paquetes diseñados para ciencia de datos
+3. **data.table**: Extensión optimizada para alto rendimiento
+
+Este documento explora las diferencias sintácticas y de rendimiento entre estos tres enfoques, utilizando datasets reales para demostrar cuándo y por qué elegir cada uno.
+
+## Objetivos de Aprendizaje
+
+Al finalizar este análisis, serás capaz de:
+
+- ✓ Comprender las diferencias sintácticas entre los tres paradigmas
+- ✓ Identificar las ventajas y desventajas de cada enfoque
+- ✓ Tomar decisiones informadas sobre qué herramienta usar según el contexto
+- ✓ Escribir código eficiente para manipulación de datos
+- ✓ Optimizar el rendimiento en proyectos con grandes volúmenes de datos
+
+## Preparación del Ambiente
+
+Primero, verificamos e instalamos los paquetes necesarios:
+
+```{r paquetes, message=TRUE}
+# Función para instalar paquetes si no están disponibles
+instalar_si_necesario <- function(paquetes) {
+  for (pkg in paquetes) {
+    if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
+      cat("📦 Instalando paquete:", pkg, "\n")
+      install.packages(pkg, repos = "https://cloud.r-project.org")
+      library(pkg, character.only = TRUE)
+    } else {
+      cat("✓ Paquete", pkg, "ya instalado\n")
+    }
+  }
+}
+
+# Paquetes necesarios
+paquetes_necesarios <- c("data.table", "dplyr", "readr", "ggplot2", 
+                         "tidyr", "microbenchmark", "knitr", "kableExtra")
+
+instalar_si_necesario(paquetes_necesarios)
+
+# Cargar librerías
+library(data.table)
+library(dplyr)
+library(readr)
+library(ggplot2)
+library(tidyr)
+library(microbenchmark)
+library(knitr)
+library(kableExtra)
+
+cat("\n✅ Todas las librerías cargadas exitosamente\n")
+```
+
+---
+
+# Generación de Dataset de Prueba
+
+Para realizar comparaciones justas, generaremos un dataset sintético con características realistas.
+
+## Parámetros del Dataset
+
+<div class="info-box">
+**📊 Configuración del Dataset:**
+
+- **Filas:** 1,000,000 (1 millón)
+- **Columnas:** 12 variables
+- **Tamaño estimado:** ~80 MB en memoria
+- **Contenido:** Datos de ventas simulados con información demográfica
+</div>
+
+```{r generar-dataset}
+# Configuración
+set.seed(42)  # Para reproducibilidad
+n_filas <- 1000000
+
+cat("Generando dataset de", format(n_filas, big.mark = ","), "filas...\n")
+
+# Vectores de valores posibles
+nombres <- c("Ana", "Juan", "María", "Carlos", "Laura", "Pedro", "Sofía", 
+             "Diego", "Valentina", "Martín", "Camila", "Lucas", "Lucía", 
+             "Mateo", "Victoria", "Santiago")
+
+apellidos <- c("García", "Rodríguez", "González", "Fernández", "López", 
+               "Martínez", "Sánchez", "Pérez", "Gómez", "Martín")
+
+ciudades <- c("Buenos Aires", "Córdoba", "Rosario", "Mendoza", "La Plata",
+              "San Miguel de Tucumán", "Mar del Plata", "Salta")
+
+regiones <- c("Centro", "NOA", "NEA", "Cuyo", "Patagonia", "AMBA")
+
+categorias <- c("Electrónica", "Ropa", "Alimentos", "Hogar", "Deportes",
+                "Libros", "Juguetes", "Salud")
+
+# Generar dataset con data.table (para velocidad)
+datos <- data.table(
+  id = 1:n_filas,
+  nombre = paste(
+    sample(nombres, n_filas, replace = TRUE),
+    sample(apellidos, n_filas, replace = TRUE)
+  ),
+  edad = sample(18:80, n_filas, replace = TRUE),
+  ciudad = sample(ciudades, n_filas, replace = TRUE),
+  region = sample(regiones, n_filas, replace = TRUE),
+  fecha = sample(seq(as.Date("2023-01-01"), as.Date("2024-12-31"), by = "day"), 
+                 n_filas, replace = TRUE),
+  categoria = sample(categorias, n_filas, replace = TRUE),
+  ventas = round(runif(n_filas, 100, 50000), 2),
+  costos = round(runif(n_filas, 50, 30000), 2),
+  precio = round(runif(n_filas, 10, 5000), 2),
+  cantidad = sample(1:100, n_filas, replace = TRUE),
+  descuento = round(runif(n_filas, 0, 0.3), 2)
+)
+
+# Asegurar que costos < ventas
+datos[costos >= ventas, costos := ventas * 0.7]
+
+fwrite(datos,"datos.csv")
+
+cat("✅ Dataset generado exitosamente\n")
+cat("   Dimensiones:", nrow(datos), "filas ×", ncol(datos), "columnas\n")
+cat("   Tamaño en memoria:", format(object.size(datos), units = "MB"), "\n")
+```
+
+## Vista Previa del Dataset
+
+```{r vista-previa}
+# Mostrar primeras filas
+as.data.frame(head(datos, 10)) %>%
+  kable(caption = "Primeras 10 filas del dataset") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"), 
+                full_width = FALSE)
+```
+
+## Estadísticas Descriptivas
+
+```{r estadisticas}
+# Resumen estadístico usando data.table
+# Crear resumen con data.table sintaxis
+resumen_dt <- data.table(
+  Estadistica = c(
+    "Total Filas",
+    "Edad Promedio",
+    "Ventas Totales",
+    "Ventas Promedio",
+    "Rango Fechas",
+    "Categorías Únicas",
+    "Regiones Únicas"
+  ),
+  Valor = c(
+    format(nrow(datos), big.mark = ","),
+    round(mean(datos$edad), 1),
+    paste0("$", format(sum(datos$ventas), big.mark = ",")),
+    paste0("$", format(round(mean(datos$ventas), 2), big.mark = ",")),
+    paste(min(datos$fecha), "a", max(datos$fecha)),
+    length(unique(datos$categoria)),
+    length(unique(datos$region))
+  )
+)
+
+# Mostrar tabla
+resumen_dt %>%
+  kable(caption = "Resumen del Dataset", col.names = c("Estadística", "Valor")) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+---
+
+# Comparación Sintáctica {.tabset}
+
+Ahora exploremos cómo realizar las operaciones más comunes con cada paradigma.
+
+## Importación de Datos
+
+### R Base: read.csv()
+
+<div class="codigo-explicacion">
+**Explicación:** `read.csv()` es la función estándar de R para leer archivos CSV. Requiere especificar `stringsAsFactors = FALSE` para evitar conversiones no deseadas de texto a factores.
+</div>
+
+```{r r-base-import, eval=FALSE}
+# R Base - Lectura tradicional
+df_base <- read.csv("datos.csv", stringsAsFactors = FALSE)
+
+# Ventajas:
+# • No requiere paquetes adicionales
+# • Funciona en cualquier instalación de R
+# • Sintaxis simple para archivos básicos
+
+# Desventajas:
+# • Lento con archivos grandes
+# • Detección de tipos menos inteligente
+# • Menos opciones de configuración
+```
+
+### Tidyverse: read_csv()
+
+<div class="codigo-explicacion">
+**Explicación:** `read_csv()` del paquete `readr` detecta automáticamente tipos de datos y es significativamente más rápido que `read.csv()`. Devuelve un tibble (versión mejorada de data.frame).
+</div>
+
+```{r tidyverse-import, eval=FALSE}
+# Tidyverse - Lectura moderna
+library(readr)
+df_tidy <- read_csv("datos.csv")
+
+# Ventajas:
+# • Detección automática de tipos
+# • ~10x más rápido que read.csv()
+# • Barra de progreso automática
+# • Mejor manejo de encodings
+
+# Desventajas:
+# • Requiere instalación de readr
+# • Sintaxis adicional para casos complejos
+```
+
+### data.table: fread()
+
+<div class="codigo-explicacion">
+**Explicación:** `fread()` (Fast Read) es la función más optimizada para lectura de archivos. Detecta automáticamente separadores, tipos de datos y es 5-20x más rápida que `read.csv()`.
+</div>
+
+```{r datatable-import, eval=FALSE}
+# data.table - Lectura ultra-rápida
+library(data.table)
+dt <- fread("datos.csv")
+
+# Ventajas:
+# • 5-20x más rápido que read.csv()
+# • Detección automática inteligente
+# • Puede leer directamente desde URLs
+# • Selección de columnas durante lectura
+
+# Desventajas:
+# • Curva de aprendizaje de data.table
+# • Sintaxis diferente a data.frame tradicional
+```
+
+## Selección de Columnas
+
+Veamos cómo seleccionar columnas específicas:
+
+```{r seleccion-columnas}
+# Crear versiones de trabajo
+df_base <- as.data.frame(datos)
+df_tidy <- as_tibble(datos)
+dt <- as.data.table(datos)
+
+cat("🔍 Seleccionando columnas: nombre, edad, ciudad\n\n")
+```
+
+### R Base
+
+```{r r-base-select}
+# Método 1: Por índice
+resultado_base_1 <- df_base[, c(2, 3, 4)]
+
+# Método 2: Por nombre (más común)
+resultado_base_2 <- df_base[, c("nombre", "edad", "ciudad")]
+
+# Mostrar resultado
+head(resultado_base_2, 5) %>%
+  kable(caption = "R Base: Selección de columnas") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+<div class="codigo-explicacion">
+**Sintaxis:** `df[, c("col1", "col2")]` - El índice vacío antes de la coma significa "todas las filas". El `c()` combina los nombres de columnas.
+</div>
+
+### Tidyverse
+
+```{r tidyverse-select}
+# Método select() - más intuitivo
+resultado_tidy <- df_tidy %>%
+  select(nombre, edad, ciudad)
+
+# Alternativas útiles:
+# select(starts_with("v"))  # Columnas que empiezan con "v"
+# select(ends_with("ad"))   # Columnas que terminan con "ad"
+# select(contains("dad"))   # Columnas que contienen "dad"
+
+head(resultado_tidy, 5) %>%
+  kable(caption = "Tidyverse: Selección de columnas") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+<div class="codigo-explicacion">
+**Sintaxis:** `select(col1, col2)` - No requiere comillas ni `c()`. El pipe `%>%` pasa el resultado de izquierda a derecha.
+</div>
+
+### data.table
+
+```{r datatable-select}
+# Método .() para seleccionar
+resultado_dt <- dt[, .(nombre, edad, ciudad)]
+
+# Alternativa con vector de nombres:
+# resultado_dt <- dt[, c("nombre", "edad", "ciudad"), with = FALSE]
+
+head(resultado_dt, 5) %>%
+  kable(caption = "data.table: Selección de columnas") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+<div class="codigo-explicacion">
+**Sintaxis:** `DT[, .(col1, col2)]` - El `.()` es un atajo para `list()`. En data.table, el segundo argumento (j) especifica qué hacer con las columnas.
+</div>
+
+## Filtrado de Filas
+
+Comparemos cómo filtrar filas con condiciones:
+
+```{r setup-filtrado}
+cat("🔍 Filtrado: personas mayores de 40 años con ventas > $10,000\n\n")
+```
+
+### R Base
+
+```{r r-base-filter}
+# Filtrado con operadores lógicos
+resultado_base <- df_base[df_base$edad > 40 & df_base$ventas > 10000, ]
+
+cat("Filas resultantes:", format(nrow(resultado_base), big.mark = ","), "\n")
+
+head(resultado_base, 5) %>%
+  select(nombre, edad, ciudad, ventas) %>%
+  kable(caption = "R Base: Filtrado de filas") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+<div class="codigo-explicacion">
+**Sintaxis:** `df[condición, ]` - La condición va antes de la coma (filas). El `&` combina condiciones con AND. Requiere `df$columna` para cada referencia.
+</div>
+
+### Tidyverse
+
+```{r tidyverse-filter}
+# Filtrado con filter()
+resultado_tidy <- df_tidy %>%
+  filter(edad > 40, ventas > 10000)
+
+cat("Filas resultantes:", format(nrow(resultado_tidy), big.mark = ","), "\n")
+
+head(resultado_tidy, 5) %>%
+  select(nombre, edad, ciudad, ventas) %>%
+  kable(caption = "Tidyverse: Filtrado de filas") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+<div class="codigo-explicacion">
+**Sintaxis:** `filter(condición1, condición2)` - Las condiciones separadas por comas son equivalentes a AND. No requiere `$` para columnas. Muy legible.
+</div>
+
+### data.table
+
+```{r datatable-filter}
+# Filtrado en el argumento i
+resultado_dt <- dt[edad > 40 & ventas > 10000]
+
+cat("Filas resultantes:", format(nrow(resultado_dt), big.mark = ","), "\n")
+
+head(resultado_dt, 5) %>%
+  select(nombre, edad, ciudad, ventas) %>%
+  kable(caption = "data.table: Filtrado de filas") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+<div class="codigo-explicacion">
+**Sintaxis:** `DT[condición]` - El primer argumento (i) filtra filas. No requiere `$` ni coma final. Sintaxis concisa y eficiente.
+</div>
+
+## Creación de Columnas
+
+Veamos cómo crear nuevas columnas calculadas:
+
+```{r setup-mutate}
+cat("➕ Creando columnas: ganancia y margen_porcentaje\n\n")
+```
+
+### R Base
+
+```{r r-base-mutate}
+# Crear columnas con $
+df_base$ganancia <- df_base$ventas - df_base$costos
+df_base$margen_pct <- round((df_base$ganancia / df_base$ventas) * 100, 2)
+
+# Mostrar resultado
+head(df_base, 5) %>%
+  select(nombre, ventas, costos, ganancia, margen_pct) %>%
+  kable(caption = "R Base: Nuevas columnas") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+<div class="warning-box">
+**⚠️ Importante:** Cada asignación con `$` crea una **copia completa** del data.frame en memoria. Con datasets grandes, esto consume mucha RAM.
+</div>
+
+### Tidyverse
+
+```{r tidyverse-mutate}
+# Crear columnas con mutate()
+df_tidy <- df_tidy %>%
+  mutate(
+    ganancia = ventas - costos,
+    margen_pct = round((ganancia / ventas) * 100, 2)
+  )
+
+# Mostrar resultado
+head(df_tidy, 5) %>%
+  select(nombre, ventas, costos, ganancia, margen_pct) %>%
+  kable(caption = "Tidyverse: Nuevas columnas") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+<div class="codigo-explicacion">
+**Ventaja:** `mutate()` permite crear múltiples columnas en una sola llamada y puede usar columnas recién creadas (como `ganancia`) en cálculos posteriores.
+</div>
+
+### data.table
+
+```{r datatable-mutate}
+# Crear columnas por referencia con :=
+dt[, ganancia := ventas - costos]
+# Luego crear margen_pct usando ganancia
+dt[, margen_pct := round((ganancia / ventas) * 100, 2)]
+
+# Mostrar resultado
+dt[1:5, .(nombre, ventas, costos, ganancia, margen_pct)] %>%
+  kable(caption = "data.table: Nuevas columnas") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+<div class="success-box">
+**✅ Ventaja clave:** El operador `:=` modifica el data.table **por referencia** (in-place), sin copiar. Esto ahorra memoria significativa en datasets grandes.
+</div>
+
+## Agregaciones
+
+Comparemos cómo calcular estadísticas por grupo:
+
+```{r setup-agg}
+cat("📊 Agregación: Estadísticas de ventas por región\n\n")
+```
+
+### R Base
+
+```{r r-base-agg}
+# Usar aggregate()
+resultado_base <- aggregate(
+  cbind(ventas, ganancia) ~ region, 
+  data = df_base, 
+  FUN = function(x) c(
+    promedio = mean(x),
+    total = sum(x),
+    minimo = min(x),
+    maximo = max(x)
+  )
+)
+
+# El resultado es complejo de trabajar en R base
+# Alternativa con tapply (más simple pero menos flexible):
+ventas_por_region <- tapply(df_base$ventas, df_base$region, mean)
+
+data.frame(
+  region = names(ventas_por_region),
+  ventas_promedio = round(ventas_por_region, 2)
+) %>%
+  arrange(desc(ventas_promedio)) %>%
+  kable(caption = "R Base: Promedio de ventas por región") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+<div class="codigo-explicacion">
+**Limitación:** `aggregate()` tiene sintaxis compleja para múltiples operaciones. `tapply()` es más simple pero menos flexible.
+</div>
+
+### Tidyverse
+
+```{r tidyverse-agg}
+# Usar group_by() + summarise()
+resultado_tidy <- df_tidy %>%
+  group_by(region) %>%
+  summarise(
+    ventas_promedio = mean(ventas),
+    ventas_total = sum(ventas),
+    ventas_min = min(ventas),
+    ventas_max = max(ventas),
+    ganancia_promedio = mean(ganancia, na.rm = TRUE),
+    n_transacciones = n()
+  ) %>%
+  arrange(desc(ventas_promedio))
+
+resultado_tidy %>%
+  mutate(across(where(is.numeric), ~format(round(., 2), big.mark = ","))) %>%
+  kable(caption = "Tidyverse: Estadísticas por región") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+<div class="success-box">
+**✅ Ventaja:** Sintaxis clara y consistente. El patrón `group_by() %>% summarise()` es fácil de leer y recordar.
+</div>
+
+### data.table
+
+```{r datatable-agg}
+# Usar by en data.table
+resultado_dt <- dt[, .(
+  ventas_promedio = mean(ventas),
+  ventas_total = sum(ventas),
+  ventas_min = min(ventas),
+  ventas_max = max(ventas),
+  ganancia_promedio = mean(ganancia, na.rm = TRUE),
+  n_transacciones = .N
+), by = region][order(-ventas_promedio)]
+
+resultado_dt %>%
+  mutate(across(where(is.numeric), ~format(round(., 2), big.mark = ","))) %>%
+  kable(caption = "data.table: Estadísticas por región") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+<div class="codigo-explicacion">
+**Sintaxis:** `DT[, .(operaciones), by = grupo]` - Todo en una expresión concisa. `.N` es un símbolo especial que cuenta filas. `[order(-col)]` ordena descendente.
+</div>
+
+---
+
+# Benchmark de Rendimiento
+
+Ahora comparemos el **rendimiento real** de cada paradigma en operaciones comunes.
+
+<div class="info-box">
+**⏱️ Metodología del Benchmark:**
+
+- Cada operación se ejecuta múltiples veces
+- Se usa el paquete `microbenchmark` para precisión
+- Resultados en milisegundos (ms)
+- Se mide el tiempo mediano (más robusto que el promedio)
+</div>
+
+## Preparación
+
+```{r benchmark-setup}
+# Guardar dataset en disco para benchmarks de importación
+archivo_temp <- tempfile(fileext = ".csv")
+fwrite(dt, archivo_temp)
+
+cat("✅ Dataset guardado para benchmarks\n")
+cat("   Tamaño del archivo:", 
+    round(file.info(archivo_temp)$size / 1024^2, 2), "MB\n")
+
+# Preparar estructuras para resultados
+resultados_benchmark <- list()
+```
+
+## Benchmark 1: Importación de Datos
+
+```{r benchmark-import, cache=TRUE}
+cat("🏁 Benchmark: IMPORTACIÓN\n")
+cat("   Archivo:", round(file.info(archivo_temp)$size / 1024^2, 2), "MB\n\n")
+
+bench_import <- microbenchmark(
+  R_Base = {
+    df <- read.csv(archivo_temp, stringsAsFactors = FALSE)
+  },
+  Tidyverse = {
+    df <- read_csv(archivo_temp, show_col_types = FALSE)
+  },
+  DataTable = {
+    dt_temp <- fread(archivo_temp)
+  },
+  times = 5,  # Ejecutar 5 veces (son archivos grandes)
+  unit = "s"
+)
+
+# Guardar resultados
+resultados_benchmark$Importacion <- bench_import
+
+# Mostrar resultados
+summary(bench_import) %>%
+  as.data.frame() %>%
+  mutate(
+    median = round(median, 3),
+    mean = round(mean, 3),
+    speedup = round(max(median) / median, 2)
+  ) %>%
+  select(expr, median, mean, speedup) %>%
+  kable(
+    caption = "Resultados: Importación (en segundos)",
+    col.names = c("Método", "Mediana (s)", "Media (s)", "Speedup vs más lento")
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+## Benchmark 2: Filtrado
+
+```{r benchmark-filter, cache=TRUE}
+cat("🏁 Benchmark: FILTRADO\n")
+cat("   Condición: edad > 40 & ventas > 10000\n\n")
+
+bench_filter <- microbenchmark(
+  R_Base = {
+    resultado <- df_base[df_base$edad > 40 & df_base$ventas > 10000, ]
+  },
+  Tidyverse = {
+    resultado <- df_tidy %>% filter(edad > 40, ventas > 10000)
+  },
+  DataTable = {
+    resultado <- dt[edad > 40 & ventas > 10000]
+  },
+  times = 20,
+  unit = "ms"
+)
+
+resultados_benchmark$Filtrado <- bench_filter
+
+summary(bench_filter) %>%
+  as.data.frame() %>%
+  mutate(
+    median = round(median, 2),
+    mean = round(mean, 2),
+    speedup = round(max(median) / median, 2)
+  ) %>%
+  select(expr, median, mean, speedup) %>%
+  kable(
+    caption = "Resultados: Filtrado (en milisegundos)",
+    col.names = c("Método", "Mediana (ms)", "Media (ms)", "Speedup vs más lento")
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+## Benchmark 3: Agregación
+
+```{r benchmark-agg, cache=TRUE}
+cat("🏁 Benchmark: AGREGACIÓN\n")
+cat("   Operación: Promedio de ventas por región y categoría\n\n")
+
+bench_agg <- microbenchmark(
+  R_Base = {
+    resultado <- aggregate(ventas ~ region + categoria, 
+                          data = df_base, FUN = mean)
+  },
+  Tidyverse = {
+    resultado <- df_tidy %>%
+      group_by(region, categoria) %>%
+      summarise(ventas_prom = mean(ventas), .groups = "drop")
+  },
+  DataTable = {
+    resultado <- dt[, .(ventas_prom = mean(ventas)), 
+                   by = .(region, categoria)]
+  },
+  times = 20,
+  unit = "ms"
+)
+
+resultados_benchmark$Agregacion <- bench_agg
+
+summary(bench_agg) %>%
+  as.data.frame() %>%
+  mutate(
+    median = round(median, 2),
+    mean = round(mean, 2),
+    speedup = round(max(median) / median, 2)
+  ) %>%
+  select(expr, median, mean, speedup) %>%
+  kable(
+    caption = "Resultados: Agregación (en milisegundos)",
+    col.names = c("Método", "Mediana (ms)", "Media (ms)", "Speedup vs más lento")
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+## Benchmark 4: Creación de Columnas
+
+```{r benchmark-mutate, cache=TRUE}
+cat("🏁 Benchmark: CREAR NUEVAS COLUMNAS\n")
+cat("   Operación: ganancia = ventas - costos\n\n")
+
+# Preparar copias limpias
+df_base_clean <- df_base[, !names(df_base) %in% c("ganancia", "margen_pct")]
+df_tidy_clean <- df_tidy %>% select(-any_of(c("ganancia", "margen_pct")))
+dt_clean <- copy(dt)[, c("ganancia", "margen_pct") := NULL]
+
+bench_mutate <- microbenchmark(
+  R_Base = {
+    df_test <- df_base_clean
+    df_test$ganancia <- df_test$ventas - df_test$costos
+  },
+  Tidyverse = {
+    df_test <- df_tidy_clean %>%
+      mutate(ganancia = ventas - costos)
+  },
+  DataTable = {
+    dt_test <- copy(dt_clean)
+    dt_test[, ganancia := ventas - costos]
+  },
+  times = 20,
+  unit = "ms"
+)
+
+resultados_benchmark$Mutate <- bench_mutate
+
+summary(bench_mutate) %>%
+  as.data.frame() %>%
+  mutate(
+    median = round(median, 2),
+    mean = round(mean, 2),
+    speedup = round(max(median) / median, 2)
+  ) %>%
+  select(expr, median, mean, speedup) %>%
+  kable(
+    caption = "Resultados: Crear Columnas (en milisegundos)",
+    col.names = c("Método", "Mediana (ms)", "Media (ms)", "Speedup vs más lento")
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+```
+
+## Visualización de Resultados
+
+```{r grafico-benchmark, fig.height=8}
+# Preparar datos para gráfico
+preparar_datos_bench <- function(bench_obj, operacion) {
+  summary(bench_obj) %>%
+    as.data.frame() %>%
+    mutate(
+      Operacion = operacion,
+      Metodo = gsub("_", " ", expr),
+      Tiempo = median
+    ) %>%
+    select(Operacion, Metodo, Tiempo)
+}
+
+datos_graficos <- bind_rows(
+  preparar_datos_bench(resultados_benchmark$Importacion, "Importación"),
+  preparar_datos_bench(resultados_benchmark$Filtrado, "Filtrado"),
+  preparar_datos_bench(resultados_benchmark$Agregacion, "Agregación"),
+  preparar_datos_bench(resultados_benchmark$Mutate, "Crear Columnas")
+)
+
+# Convertir importación de segundos a milisegundos
+datos_graficos <- datos_graficos %>%
+  mutate(
+    Tiempo = ifelse(Operacion == "Importación", Tiempo * 1000, Tiempo),
+    Unidad = ifelse(Operacion == "Importación", "ms (importación en seg × 1000)", "ms")
+  )
+
+# Crear gráfico
+ggplot(datos_graficos, aes(x = Operacion, y = Tiempo, fill = Metodo)) +
+  geom_bar(stat = "identity", position = "dodge", alpha = 0.8) +
+  geom_text(aes(label = round(Tiempo, 1)), 
+            position = position_dodge(width = 0.9),
+            vjust = -0.5, size = 3) +
+  scale_fill_manual(
+    values = c("R Base" = "#FF9999", 
+               "Tidyverse" = "#99FF99", 
+               "DataTable" = "#9999FF")
+  ) +
+  labs(
+    title = "Comparación de Rendimiento: R Base vs Tidyverse vs data.table",
+    subtitle = paste("Dataset de", format(nrow(dt), big.mark = ","), "filas"),
+    x = "Operación",
+    y = "Tiempo (milisegundos - escala log)",
+    fill = "Método",
+    caption = "Aplicaciones de Ciencia de Datos - UNO 2025"
+  ) +
+  scale_y_log10(
+    labels = scales::comma
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14, hjust = 0.5),
+    plot.subtitle = element_text(size = 11, hjust = 0.5),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "bottom",
+    panel.grid.minor = element_blank()
+  )
+```
+
+<div class="success-box">
+**🏆 Resultado:** data.table es el ganador consistente en todas las operaciones, especialmente en importación y agregaciones complejas.
+</div>
+
+---
+
+# Análisis de Casos de Uso
+
+## Tabla Comparativa Completa
+
+```{r tabla-comparativa}
+comparacion <- data.frame(
+  Criterio = c(
+    "Velocidad de importación",
+    "Velocidad de procesamiento",
+    "Uso de memoria",
+    "Legibilidad del código",
+    "Curva de aprendizaje",
+    "Documentación/Comunidad",
+    "Ideal para datasets pequeños (<100K)",
+    "Ideal para datasets medianos (100K-1M)",
+    "Ideal para datasets grandes (>1M)",
+    "Integración con ggplot2",
+    "Modificación por referencia",
+    "Encadenamiento de operaciones"
+  ),
+  R_Base = c(
+    "⭐⭐", "⭐⭐", "⭐⭐", "⭐⭐⭐", "⭐⭐⭐⭐",
+    "⭐⭐⭐⭐⭐", "⭐⭐⭐⭐⭐", "⭐⭐⭐", "⭐",
+    "⭐⭐⭐⭐", "❌", "❌"
+  ),
+  Tidyverse = c(
+    "⭐⭐⭐⭐", "⭐⭐⭐⭐", "⭐⭐⭐", "⭐⭐⭐⭐⭐", "⭐⭐⭐⭐",
+    "⭐⭐⭐⭐⭐", "⭐⭐⭐⭐⭐", "⭐⭐⭐⭐", "⭐⭐⭐",
+    "⭐⭐⭐⭐⭐", "❌", "⭐⭐⭐⭐⭐"
+  ),
+  DataTable = c(
+    "⭐⭐⭐⭐⭐", "⭐⭐⭐⭐⭐", "⭐⭐⭐⭐⭐", "⭐⭐⭐", "⭐⭐",
+    "⭐⭐⭐⭐", "⭐⭐⭐⭐", "⭐⭐⭐⭐⭐", "⭐⭐⭐⭐⭐",
+    "⭐⭐⭐⭐", "✅", "⭐⭐⭐⭐"
+  )
+)
+
+comparacion %>%
+  kable(
+    caption = "Comparación Detallada de Paradigmas",
+    col.names = c("Criterio", "R Base", "Tidyverse", "data.table")
+  ) %>%
+  kable_styling(bootstrap_options = c("striped", "hover")) %>%
+  row_spec(0, bold = TRUE, background = "#003366", color = "white") %>%
+  column_spec(1, bold = TRUE, width = "25em")
+```
+
+## Recomendaciones por Escenario
+
+```{r recomendaciones}
+escenarios <- data.frame(
+  Escenario = c(
+    "Análisis exploratorio rápido",
+    "Reporte para compartir con equipo",
+    "Script sin dependencias",
+    "Procesamiento ETL diario (5GB)",
+    "Dashboard interactivo",
+    "Análisis estadístico académico",
+    "API de producción (alta carga)",
+    "Prototipo rápido",
+    "Tesis doctoral (reproducibilidad)",
+    "Procesamiento de logs en servidor"
+  ),
+  Recomendado = c(
+    "Tidyverse", "Tidyverse", "R Base", "data.table",
+    "Tidyverse", "R Base / Tidyverse", "data.table",
+    "Tidyverse", "Tidyverse", "data.table"
+  ),
+  Razon = c(
+    "Sintaxis clara para explorar",
+    "Código legible para colaboración",
+    "Disponible en cualquier instalación",
+    "Velocidad crítica con grandes volúmenes",
+    "Integración perfecta con Shiny",
+    "Documentación extensa y estabilidad",
+    "Eficiencia de memoria y velocidad",
+    "Rápido de escribir y entender",
+    "Amplia documentación y comunidad",
+    "Mínimo uso de recursos del sistema"
+  )
+)
+
+escenarios %>%
+  kable(caption = "Guía de Selección por Escenario de Uso") %>%
+  kable_styling(bootstrap_options = c("striped", "hover")) %>%
+  column_spec(2, bold = TRUE, color = "white", background = spec_color(1:10, 
+    end = 0.7, direction = -1, option = "viridis"))
+```
+
+---
+
+# Conclusiones y Mejores Prácticas
+
+## Conclusiones Principales
+
+<div class="success-box">
+### 🎯 Hallazgos Clave
+
+1. **Rendimiento**: data.table es el claro ganador en velocidad
+   - 5-20x más rápido en importación
+   - 3-10x más rápido en procesamiento
+   - Uso de memoria significativamente menor
+
+2. **Legibilidad**: Tidyverse ofrece código más expresivo
+   - Sintaxis consistente y predecible
+   - Ideal para colaboración y enseñanza
+   - Curva de aprendizaje suave
+
+3. **Universalidad**: R Base siempre está disponible
+   - No requiere instalación de paquetes
+   - Útil para scripts simples
+   - Base sólida para entender R
+
+4. **Contexto es Rey**: No hay "mejor" absoluto
+   - Datasets pequeños: Cualquier método es adecuado
+   - Datasets medianos: Tidyverse para exploración
+   - Datasets grandes: data.table es esencial
+</div>
+
+## Mejores Prácticas
+
+### 1. Para Principiantes
+
+```{r eval=FALSE}
+# Comenzar con Tidyverse
+library(tidyverse)
+
+datos <- read_csv("archivo.csv")
+
+resultado <- datos %>%
+  filter(condicion) %>%
+  mutate(nueva_col = calculo) %>%
+  group_by(grupo) %>%
+  summarise(promedio = mean(variable))
+
+# Código legible = código mantenible
+```
+
+### 2. Para Producción
+
+```{r eval=FALSE}
+# Usar data.table en producción
+library(data.table)
+
+# Importación rápida
+DT <- fread("archivo_grande.csv")
+
+# Procesamiento eficiente
+resultado <- DT[condicion,
+                .(promedio = mean(variable),
+                  total = sum(variable)),
+                by = grupo]
+
+# Modificación por referencia
+DT[, nueva_col := calculo]
+```
+
+### 3. Combinando Enfoques
+
+```{r eval=FALSE}
+# ¡Puedes combinar lo mejor de cada mundo!
+
+# Importar con data.table (rápido)
+DT <- fread("datos_grandes.csv")
+
+# Convertir a tibble para exploración
+datos_tidy <- as_tibble(DT)
+
+# Explorar con tidyverse
+datos_tidy %>%
+  ggplot(aes(x, y)) +
+  geom_point()
+
+# Volver a data.table para procesamiento pesado
+setDT(datos_tidy)
+datos_tidy[, operacion_compleja := ...]
+```
+
+## Recursos para Profundizar
+
+### Documentación Oficial
+
+- **data.table**: https://rdatatable.gitlab.io/data.table
+- **Tidyverse**: https://www.tidyverse.org
+- **R Base**: `?read.csv`, `?aggregate`, `?merge` en consola
+
+### Tutoriales Interactivos
+
+```{r eval=FALSE}
+# Tutoriales de data.table
+vignette("datatable-intro")
+vignette("datatable-keys-fast-subset")
+
+# Libro gratuito de R for Data Science
+# https://r4ds.hadley.nz
+```
+
+### Comunidad y Ayuda
+
+- Stack Overflow: [r] tag
+- RStudio Community: community.rstudio.com
+- Twitter: #rstats
+- GitHub: Repositorios oficiales de cada paquete
+
+---
+
+# Información de Sesión
+
+<div class="info-box">
+Este documento fue generado el `r format(Sys.time(), '%d de %B de %Y a las %H:%M')` con la siguiente configuración:
+</div>
+
+```{r session-info}
+sessionInfo()
+```
+
+---
+
+<div class="success-box">
+## 🎓 Aplicaciones de Ciencia de Datos
+
+**Universidad Nacional del Oeste (UNO)**  
+**Especialización en Ciencia de Datos**  
+**Código:** 07102  
+**Año:** 2025
+
+---
+
+**Docente:** Francisco Fernández                                  
+**Contacto:** franaf@gmail.com
+
+---
+
+Este material es parte del programa académico de la materia y está diseñado para uso educativo en el contexto de la especialización en Ciencia de Datos de la UNO.
+</div>
+
+---
+
+```{r cleanup, include=FALSE}
+# Limpiar archivos temporales
+if (file.exists(archivo_temp)) {
+  file.remove(archivo_temp)
+}
+```

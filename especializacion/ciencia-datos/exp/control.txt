@@ -1,0 +1,6 @@
+part_future	part_train	part_validate	part_test	part_train_final	N
+0	1	0	0	1	98054
+0	0	0	0	0	30805
+0	0	0	1	1	6332
+0	0	1	0	1	6107
+1	0	0	0	0	6497

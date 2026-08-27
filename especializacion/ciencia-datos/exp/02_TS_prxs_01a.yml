@@ -1,0 +1,78 @@
+
+experiment:
+  name: "exp"
+  type: "TrainingStrategy"
+  tags: [ "marketing" ]
+  requires: "./exp/01_FE/prxs_01a/" # Aca poner la carpeta de la FE que necesite
+
+
+param:
+  semilla: 102191
+
+  #donde aplico el modelo final, los datos sin clase
+  future:
+    periodos: [ 202112 ]
+    rango:
+      desde:
+      hasta:
+    excluir: [ ]
+    undersampling: []
+
+  #donde entreno
+  train:
+    periodos: [ ]
+    rango:
+      desde:  202001
+      hasta:  202104
+    excluir: [ ]
+    undersampling: [ ]  #ATENCION  sin undersampling
+
+  #donde valido
+  validate:
+    periodos: [ 202105 ]
+    rango:
+      desde:  
+      hasta:  
+    excluir: [ ]
+    undersampling: [  ]
+
+  #donde testeo
+  test:
+    periodos: [ 202106 ]
+    rango:
+      desde:  
+      hasta:  
+    excluir: [  ]
+    undersampling: [  ]
+
+  #donde entreno el modelo final
+  train_final:
+    periodos: [ ]
+    rango:
+      desde:  202001
+      hasta:  202106
+    excluir: [ ]
+    undersampling: [  ]
+    
+
+  files:
+    input:
+      dentrada: [ "prescripciones202112_fma6.csv.gz" ] # Aca va el dataset de origen
+    output:
+      future_data:   "TS_future_data.csv.gz"
+      train_strategy: "TS_train_strategy.csv.gz"
+      train_final:   "TS_train_final.csv.gz"
+      control:       "control.txt"
+
+  const:
+    secciones: [ "future", "train", "validate", "test", "train_final"  ]
+    clase: "clase"
+    periodo: "foto_mes"
+    futuro: [ 202112 ]
+    campos_sort:  [ "medico", "foto_mes" ]   #por donde hago el sort inicial
+
+
+environment:
+  repo_dir: "~/labo/"
+  exp_dir:  "./exp/02_TS/prxs_01a/"
+  catalog:  "catalogo.txt"

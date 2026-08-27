@@ -1,0 +1,69 @@
+# lag1, delta1, tendencia6, promedio6
+# Ratios, trends y promedios 6, 3 y 12
+
+experiment:
+  script: "01_FE_prxs.R"
+  restart: FALSE
+  name: "prxs_01a"
+  type: "FeatureEngineering"
+  tags: [ "base" ]
+  description: "Lags2,delta2, tendencia2, media2, canaritos0.3"
+
+  requires: 
+
+
+param:
+  dummiesNA: FALSE  #si la variable tiene nulos, agrega una variable dummy que indica +[0,1] si es nulo o no
+
+  corregir: "NO"     #  Repara las variables rotas { "NO", "ClaudioCastillo", "AsignarNA" }
+  variablesdrift: [ ] #Variables a aeliminar
+  
+  variablesmanuales: FALSE   #NO SE AGREGAN VARIABLES MANUALES
+
+  acumulavars: FALSE   #a lo nuevo lo va aplicando
+
+  #lags y sus deltas
+  lags: 
+    correr:    [  TRUE,  TRUE, FALSE, FALSE, FALSE, FALSE ]  #si se corre el lag
+    lag:       [     1,      2,     3,     4,     5,     6 ]  #orden del lag
+    delta:     [  TRUE,  TRUE, FALSE, FALSE, FALSE, FALSE ]  #solo se activa si correr=TRUE 
+    canaritos: [   0.3,    0.3,   0.0,   0.0,   0.0,   0.0 ]  #porcentaje de canaritos asesinos, del total de columnas del dataset, 0 indica NO reducir campos por canaritos
+
+
+  tendenciaYmuchomas:  #todos FALSE
+    correr:    [  TRUE, TRUE, FALSE, TRUE ]   #tendencias a correr, es lo que controla y se impone al resto
+    ventana:   [     6,     3,    9,     12 ]   #tamaño de la ventana, solo se corren las que dicen  correr=TRUE
+    tendencia: [  TRUE,  TRUE,  TRUE,  TRUE ]   #pendiente de la recta ajustada por cuadrados minimos
+    minimo:    [ TRUE,  TRUE, FALSE, TRUE ]   #minimo de la ventana
+    maximo:    [ TRUE, TRUE, FALSE, TRUE ]   #maximo de la ventana
+    promedio:  [  TRUE, TRUE,  TRUE, FALSE ]   #promedio de la ventana
+    ratioavg:  [ TRUE, TRUE, FALSE, TRUE ]   #valor sobre el promedio de la ventana
+    ratiomax:  [ TRUE, TRUE, FALSE, TRUE ]   #valor sobre el maximo de la ventana
+    canaritos: [   0.3,   0.3,   0.0,   0.3 ]   #porcentaje de canaritos asesinos, del total de columnas del dataset, 0 indica NO reducir campos por canaritos
+
+
+  tony:  FALSE
+
+  rankeador: FALSE
+
+  canaritos_final: 0.3   #si es CERO entonces no hace el filtrado final por canaritos
+
+  files:
+    input:
+      dentrada: [ "prescripciones.rds" ]
+    output:
+      dsalida: "prescripciones202112_fma6.csv.gz"
+
+  const:
+    lab_clase:    "LAB_4"
+    clase:         "clase"
+    futuro:        [ 202112 ]
+    campos_sort:   [ "medico", "foto_mes" ]   #por donde hago el sort inicial
+    campos_rsort:  [ "foto_mes", "medico" ]   #por donde hago el sort inicial
+    campos_fijos:  [ "medico","esp1", "foto_mes", "mes", "clase" ]
+
+
+environment:
+  base_dir: "C:/00_dev/00_playground/04_TEACH/UNO/2025/clases/clase_05-20251101/modelado_predictivo/pred_pxs"
+  repo_dir: "./datasets"
+  exp_dir:  "./exp/01_FE"

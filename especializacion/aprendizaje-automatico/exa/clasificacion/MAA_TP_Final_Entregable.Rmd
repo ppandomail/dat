@@ -1,0 +1,760 @@
+---
+title: "Trabajo Práctico 2"
+date: "Septiembre 2025"
+output:
+   html_document:
+     toc: yes
+     code_folding: show
+     toc_float: yes
+     toc_depth: 5 
+     df_print: paged
+     theme: united
+     code_download: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = FALSE,
+	fig.align = "center",
+	fig.height = 4,
+	fig.width = 6,
+	message = FALSE,
+	warning = FALSE
+)
+options(width = 90)
+
+
+library(ggplot2)
+library(readxl)
+library(GGally)
+library(ResourceSelection)
+library(DescTools)
+library(caret)
+library(ROCR)
+library(gridExtra)
+library(car)
+library(dplyr)
+library(corrplot)
+library(e1071)
+library(class)
+library(fastDummies)
+library(knitr)
+```
+
+#### Universidad: UNO - Especialización en Ciencia de Datos
+
+#### Materia: Modelos para el Aprendizaje Automático (01052)
+
+##### Profesor: Mg. Silvia Perez
+
+##### Alumnos: Grupo 3 (Lic. Leticia Sosa, Ing. Federico Czerniawski, Mg. Ing. Pablo Pandolfo)
+
+##### 
+
+### 1. Exploración y análisis de datos
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+  setwd('G:/Mi unidad/Académicos/Posgrado_CienciasDeDatos/Modelos_Aprendizaje_Automatico/TP_Final')
+  datos <- read.csv("cancelacion.csv", header =  TRUE, sep = ";")
+  
+  # Se elimina variable id
+  datos <- datos[, -1]
+ 
+  # Se renombran las variables
+  colnames(datos) <- c("dias_permanencia", "packtv", "min_llam", "total_llam", "carga_extra", "hs_sin_conexion", "reclamos", "llam_internac", "tiempo_internac", "dias_cortes", "cancela")
+  head(datos)
+  
+  # Se visualiza la estructura de datos
+  summary(datos)
+  # Se verifica existencia de datos faltantes
+  sum(is.na(datos))
+  # Se observa un único dato faltante en la variable **hs_sin_conexion**, por ser sólo uno se decide eliminar
+  
+  # Se omite el caso con el dato faltante
+  datos <- na.omit(datos)
+  sum(is.na(datos))
+  str(datos)
+  
+  # Se observa que las variables **packtv** y **cancela** son categóricas, por lo que se las convierte en factor
+  datos$packtv <- as.factor(datos$packtv)
+  datos$cancela <- as.factor(datos$cancela)
+  summary(datos)
+```
+
+Durante la exploración de los datos incluidos en el archivo "cancelacion.csv" se detectó lo siguiente:
+
+-   Se observa un único dato faltante en la variable **hs_sin_conexion**, y por ser sólo uno se decide eliminar.
+
+-   Las variables **packtv** y **cancela** son categóricas, por lo que se las convierte en factor.
+
+-   Se observa que las variables **carga_extra** y **min_llam** presentan alta correlación. Esto tiene sentido ya que mientras más minutos consuma el usuario más necesidad tendrá de contratar carga extra. Esta situación será tenida en cuenta más adelante.
+
+```{r echo=FALSE}
+ # Se analizan las correlaciones
+  varNumericas <- select_if(datos, is.numeric)
+  correl <- cor(varNumericas)
+  corrplot(correl, method="color",  tl.col="black", tl.cex=0.8)
+  corrplot(correl, method="number", tl.col="black", tl.cex=0.8)
+  # Se observa que las variables **carga_extra** y **min_llam** presentan alta correlación. Esto  tiene sentido ya que mientras más minutos consuma el usuario más necesidad tendrá de contratar carga extra 
+  
+```
+
+-   Se observa que las variables **hs_sin_conexion** y **llam_internac** presentan datos erróneos, son negativos, inconsistente con la definición de la variable. Se los procede a eliminar.
+
+-   Se observa que las variables **dias_permanencia** y **min_llam** presentan datos atípicos, muy alejados del resto del set de datos. Se los procede a eliminar.
+
+```{r echo=FALSE}
+# Análisis de cada variable con respecto a cancela
+ myplot <- function(yname, nomcol) {
+  ggplot(data = datos, aes_string(x = "factor(cancela)", y = yname, fill = "factor(cancela)")) +
+    geom_boxplot() +
+    xlab("cancela") + ylab(nomcol) +
+    theme(legend.position = "none",
+          axis.text.x = element_text(),
+          axis.ticks = element_line(),
+          axis.line = element_line(colour = "royalblue", linewidth = 0.5, linetype = "solid")) +
+    scale_fill_brewer(palette = "BuPu")
+}
+
+p1 <- myplot("dias_permanencia", 'dias_permanencia')
+p2 <- myplot("min_llam", 'min_llam')
+p3 <- myplot("total_llam", 'total_llam')
+p4 <- myplot("carga_extra", 'carga_extra')
+p5 <- myplot("hs_sin_conexion", 'horas_sin_conexion')
+p6 <- myplot("reclamos", 'reclamos')
+p7 <- myplot("llam_internac", 'llam_internac')
+p8 <- myplot("tiempo_internac", 'tiempo_internac')
+p9 <- myplot("dias_cortes", 'dias_cortes')
+
+grid.arrange(p1, p2, p3, p4, p5, p6, p7, p8, p9, ncol=3, nrow=3)
+  # Se observa que las variables **dias_permanencia**, **min_llam**, **hs_sin_conexion** y **llam_internac** presentan datos atípicos que deberán ser analizados
+  
+#Se grafican las variables con outliers
+ ggplot(datos, aes(x = hs_sin_conexion, y = dias_permanencia)) +
+    geom_point(alpha = 0.6, color = "steelblue") +  # puntos con transparencia y color
+    theme_minimal() +                              # tema limpio y minimalista
+    labs(title = "hs_sin_conexion vs dias_permanencia",
+         x = "Horas sin conexión",
+         y = "Días de permanencia") +
+    theme(
+      axis.title = element_text(size = 12, face = "bold"),
+      axis.text = element_text(color = "black", size = 10),
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold")
+    )
+  
+  ggplot(datos, aes(x = min_llam, y = llam_internac)) +
+    geom_point(alpha = 0.6, color = "darkorange") +
+    theme_minimal() +
+    labs(title = "min_llam vs llam_internac",
+         x = "Minutos de llamada",
+         y = "Llamadas internacionales") +
+    theme(
+      axis.title = element_text(size = 12, face = "bold"),
+      axis.text = element_text(color = "black", size = 10),
+      plot.title = element_text(hjust = 0.5, size = 14, face = "bold")
+    )
+  
+```
+
+```{r include=FALSE}
+# Se eliminan los outliers detectados
+  datos <- datos[-which(datos$min_llam > 1000), ]
+  datos <- datos[-which(datos$llam_internac < -5), ]
+  datos <- datos[-which(datos$dias_permanencia > 1000), ]
+  datos <- datos[-which(datos$hs_sin_conexion < -10), ]
+  summary(datos)
+  
+  
+```
+
+### 2. Ajuste de Modelos
+
+```{r include=FALSE}
+## Conjunto de entrenamiento y test
+  set.seed(0123)
+  index <- createDataPartition(datos$cancela, p = 0.7, list = FALSE)
+  train <- datos[index, ]
+  test <- datos[-index, ]
+  
+  # Cantidad de casos en conjunto train (entrenamiento)
+  nrow(train)
+  # Cantidad de casos en conjunto test (validación)
+  nrow(test)
+  nrow(datos)
+  # Se separó el conjunto de datos original que contaba con 4995 observaciones en dos conjuntos de datos: un conjunto **train** (entrenamiento) con **3497** observaciones y otro conjunto **test** (validación) con **1498**
+  #La separación se realizó en forma aleatoria con la proporción **70/30**
+```
+
+Se separó el conjunto de datos original, que contaba con 4995 observaciones, en dos conjuntos de datos: un conjunto **train** (entrenamiento) con **3497** observaciones y otro conjunto **test** (validación) con **1498**.
+
+La separación se realizó en forma aleatoria con la proporción **70/30.**
+
+#### Modelo de regresión logística
+
+1.  Se ajustó un mod_full con todas las variables.
+
+```{r echo=FALSE}
+## Modelos de regresión logística
+  mod_full <- glm(formula = cancela ~ ., data = train, family = "binomial")
+  summary(mod_full)
+ 
+ 
+```
+
+2.  Se ajustó un modelo **modelo1** con todas las variables y con el método Stepwise Backward (Selección hacia Atrás) se seleccionó el mejor modelo que contiene las siguientes variables significativas:
+
+-   \# - packtv
+-   \# - hs_sin_conexion
+-   \# - llam_internac
+-   \# - tiempo_internac
+-   \# - dias_cortes
+
+modelo1: cancela \~ dias_permanencia + packtv + min_llam + carga_extra + hs_sin_conexion + llam_internac + tiempo_internac + dias_cortes
+
+Comparando contra el **mod_full**, son modelos muy similares en cuanto a la significancia de variables, devianza y el valor de AIC.
+
+Optamos por el **modelo1** por ser más simple
+
+```{r echo=FALSE}
+ # Modelo1: seleccionando con step sobre todas las variables disponibles
+  modelo1 <- step(mod_full, direction = "backward", trace = F)
+  summary(modelo1)
+  # Se ajustó un modelo **modelo1** con todas las variables y con el método Stepwise Backward (Selección hacia Atrás) se seleccionó el mejor modelo que contiene las siguientes variables significativas:
+  # - packtv
+  # - hs_sin_conexion
+  # - llam_internac
+  # - tiempo_internac
+  # - dias_cortes
+  # cancela ~ dias_permanencia + packtv + min_llam + carga_extra + hs_sin_conexion + llam_internac + tiempo_internac + dias_cortes
+  # Comparando contra el **mod_full**, son modelos muy similares en cuanto a la significancia de variables, devianza y el valor de AIC. Optaríamos por el **modelo1** por ser más simple
+ 
+  
+
+```
+
+3.  Considerando sólo las variables numéricas se propone el **modelo2**:
+
+-   cancela \~ dias_permanencia + min_llam + carga_extra + hs_sin_conexion + llam_internac + tiempo_internac + dias_cortes
+
+Comparando con el modelo1, se puede decir que son muy similares en cuanto a la significancia de variables, la devianza, pero el valor de AIC es mejor (menor) en modelo1.
+
+El modelo1 parece ser superior al modelo2. Claramente el haber eliminado la variable categórica packtv (que es altamente significativa en el modelo1) no fue una buena decisión.
+
+```{r echo=FALSE}
+  # Modelo2: seleccionando con step sobre todas las variables numéricas disponibles
+  
+  mod_num = glm('cancela ~ dias_permanencia + min_llam + carga_extra + hs_sin_conexion + llam_internac + tiempo_internac + dias_cortes', data = train, family = "binomial")
+  #summary(mod_num)
+  
+  
+  modelo2 <- step(mod_num, direction = "backward", trace = F)
+  summary(modelo2)
+  # Considerando solo las variables numéricas se propone el modelo:
+  # - cancela ~ dias_permanencia + min_llam + carga_extra + hs_sin_conexion + llam_internac + tiempo_internac + dias_cortes
+  # Comparando contra el modelo1, son modelos muy similares en cuanto a la significancia de variables, la devianza y el valor de AIC es mejor (menor) en modelo_1.
+  # El modelo_1 parece ser superior a modelo_2, claramente el haber eliminado la variable no numérica packtv (que es altamente significativa en el modelo_1) no fue una buena decisión.
+
+```
+
+4.  **Modelo3**: se ajustó un modelo con las variables significativas del **Modelo1**.
+
+Sin embargo, los valores de AIC y Devianza residual no son mejores que los del modelo1.
+
+```{r echo=FALSE}
+  
+  # Modelo3: se ajusto un modelo con las variables significativas del Modelo1
+  modelo3 = glm(cancela ~ packtv + hs_sin_conexion + llam_internac + tiempo_internac + dias_cortes, data = train, family = "binomial")
+  summary(modelo3)
+```
+
+### Test de bondad de ajuste
+
+#### Análisis de los 4 modelos con AIC:
+
+```{r}
+# Se comparan modelos con AIC
+  AIC(mod_full, modelo1, modelo2, modelo3)
+  # Según la métrica AIC, el **modelo1** es el que **mejor** se ajusta a los datos y el de menor complejidad (más parsimonioso)
+ 
+```
+
+Según la métrica AIC, el **modelo1** es el que mejor se ajusta a los datos y el de menor complejidad (más parsimonioso)
+
+#### Análisis de devianzas con ANOVA
+
+```{r echo=FALSE}
+# Se comparan modelos con devianzas
+  anova(mod_full, modelo1, modelo2, modelo3)
+  # ANOVA se utiliza para comparar la bondad de ajuste de varios modelos anidados (es decir, modelos donde uno es un subconjunto del otro). 
+  # Al comparar los cuatro modelos se observa:
+    # - mod_full vs modelo1: La devianza residual del modelo1 es levemente mayor pero NO es estadisticamente significativa esa diferencia (p-valor muy alto). El modelo1 es preferible por su parsimonia.
+  # modelo1 vs modelo2: La devianza residual del modelo2 es bastante mayor y esa diferencia es altamente signicativa (p-valor menor a 0.05). Se mantiene modelo1 como el mejor.
+  # modelo2 vs modelo3: La devianza residual del modelo3 es bastante mayor y esa diferencia es altamente signicativa (p-valor menor a 0.05). Entre ambos, es mejor el modelo2.
+  # El modelo1 es el más recomendable en base a la bondad de ajuste, además es más simple que el mod_full (excluye algunas variables no significativas)
+  
+```
+
+Al realizar la comparación de devianzas utilizando ANOVA en los 4 modelos se observa:
+
+-   Orden de la comparación: mod_full, modelo1, modelo2, modelo3
+
+-   Linea N°2 - mod_full vs modelo1: La devianza residual del modelo1 es levemente mayor pero esa diferencia NO es estadísticamente significativa (p-valor muy alto). El modelo1 es preferible por su parsimonia.
+
+-   Linea N°3 - modelo1 vs modelo2: La devianza residual del modelo2 es bastante mayor y esa diferencia es altamente signicativa (p-valor menor a 0.05). Se mantiene modelo1 como el mejor.
+
+-   Linea N°4 - modelo2 vs modelo3: La devianza residual del modelo3 es bastante mayor y esa diferencia es altamente signicativa (p-valor menor a 0.05). Entre ambos, es mejor el modelo2.
+
+El modelo1 es el más recomendable en base a la bondad de ajuste, además es más simple que el mod_full (que excluye algunas variables no significativas)
+
+#### Análisis de Pseudo R2
+
+```{r}
+ #Pseudo R2 - Se toma el modelo que tenga las métricas más altas
+  pr2_results = data.frame(
+  mod_full = PseudoR2(mod_full, c("CoxSnell", "Nagel")),
+  modelo1 = PseudoR2(modelo1, c("CoxSnell", "Nagel")),
+  modelo2 = PseudoR2(modelo2, c("CoxSnell", "Nagel")),
+  modelo3 = PseudoR2(modelo3, c("CoxSnell", "Nagel"))
+  )
+
+  knitr::kable(pr2_results, digits = 5, caption = "Comparación de Métricas Pseudo R2")
+```
+
+El modelo1 es el que muestra las métricas más altas, se refuerza las conclusiones obtenidas anteriormente con anova.
+
+#### Test de Hosmer-Lemeshow
+
+```{r}
+#Test de Hosmer-Lemeshow
+  print("mod_full")
+  hoslem.test(mod_full$y, fitted(mod_full))
+  print("modelo1")
+  hoslem.test(modelo1$y, fitted(modelo1))
+  print("modelo2")
+  hoslem.test(modelo2$y, fitted(modelo2))
+  print("modelo3")
+  hoslem.test(modelo3$y, fitted(modelo3))
+  # H0: el modelo ajusta los datos
+  # H1: el modelo no ajusta los datos
+  # p-valor muy pequeño, se rechaza H0. El modelo no se ajusta bien a los datos.
+  # El modelo3 da un mejor valor de ajuste con respecto a los otros modelos pero basandonos en los resultados de los tests anteriores, tomamos la decisión de mantener el modelo1 
+
+```
+
+Las hipótesis del Test de Hosmer-Lemeshow son:
+
+-   H0: El modelo ajusta los datos.
+
+-   H1: El modelo no ajusta los datos.
+
+Este test indica qué tan confiable es el modelo para predecir la probabilidad real de que un cliente cancele.
+
+Para el mod_full, modelo1 y modelo2 se obtuvo un p-valor muy pequeño, se rechaza H0. El modelo no se ajusta bien a los datos.
+
+El **modelo3** da un mejor valor de ajuste con respecto a los otros modelos (levemente superior a 0.05) pero, basandonos en los resultados de los tests anteriores, tomamos la decisión de mantener el modelo1.
+
+\*\*Cabe aclarar que el ajuste de modelos y los test de bondad de ajuste se realizaron con el conjunto de datos que incluía los outliers y luego se repitieron sin los outliers. En ambos casos los resultados fueron muy similares, por lo que se optó continuar con el conjunto de datos sin los outliers.
+
+#### Análisis del modelo elegido
+
+De acuerdo al análisis anterior, se ha elegido el **modelo1**.
+
+**Fórmula**: cancela \~ dias_permanencia + packtv + min_llam + carga_extra + hs_sin_conexion + llam_internac + tiempo_internac + dias_cortes
+
+Según el test de Wald, las **variables más significativas** son:
+
+-   packtv (categórica)
+
+-   hs_sin_conexion
+
+-   llam_internac
+
+-   tiempo_internac
+
+-   dias_cortes
+
+**Test de bondad de ajuste**
+
+Se hizo el test de bondad de ajuste con ANOVA, comparando los 4 modelos en evaluación.
+
+Se llegó a la conclusión de que el modelo1 es el modelo estadístico que mejor se ajusta al conjunto de entrenamiento.
+
+Si bien, no es el modelo con menor devianza residual (variabilidad que no haya sido explicada por el modelo), es el más equilibrado y más parsimonioso.
+
+Además la diferencia de devianza con el mod_full no es estadísticamente significativa.
+
+Cabe destacar que el test de Hosmer-Lemeshow indica que el modelo mejor calibrado para predecir la probabilidad de que un cliente cancele es el modelo3, sin embargo, por el resultado de los otros tests, se decide mantener el modelo1.
+
+**Interpretación de coeficientes en términos de los ODDS:**
+
+-   **packtv**: Indica que tener el pack de tv contratado (packtv = yes) reduce la probabilidad de cancelar. Odds ratio = exp(-0.94) = 0.39
+
+-   **hs_sin_conexion**: Indica que por cada hora sin conexión aumenta la probabilidad de cancelar. Odds ratio = exp(0.07) = 1.08
+
+-   **llam_internac**: Indica que por cada llamada internacional realizada disminuye la probabilidad de cancelar. Odds ratio = exp(-0.06) = 0.93
+
+-   **tiempo_internac**: Indica que si hay más tiempo de llamada internacional aumenta la probabilidad de cancelar. Odds ratio = exp(0.30) = 1.36
+
+-   **dias_cortes**: Indica que más días de cortes aumenta la probabilidad de cancelar. Odds ratio = exp(0.05) = 1.06
+
+A modo de observación:
+
+-   Los clientes que tienen el pack tv contratado, realizan mas cantidad de llamadas internacionales y poco tiempo de llamadas internacionales, tienen menos chances de cancelar.
+
+-   Los clientes que tienen más horas sin conexión, más tiempo en llamadas internacionales y más días de corte, son los que tienen más chances de cancelar.
+
+#### Análisis de multicolinealidad (VIF)
+
+Se observa una alta multicolinealidad en las variables **min_llam** y **carga_extra**, en parte era esperado por el análisis de correlación que realizamos al principio.
+
+```{r echo=FALSE}
+### Multicolinealidad
+  vif(modelo1)
+
+```
+
+Por ello se procedió a ajustar dos nuevos modelos separando esas variables para comparar el comportamiento: **modelo1_sin_min_llam y modelo1_sin_carga_extra.**
+
+Analizando con AIC y ANOVA **modelo1** con **modelo1_sin_min_llam** se vizualiza que la devianza aumenta en 2.41 unidades y el p-valor no es estadisticamente significativo.
+
+Esto indica que eliminar esa variable no empeora significativamente el ajuste, por lo que esa variable puede ser prescindible.
+
+Entre los modelos: **modelo1_sin_min_llam** y **modelo1_sin_carga_extra** no hay diferencia en la devianza, por lo que sería lo mismo elegir cualquiera de esos modelos.
+
+```{r echo=FALSE}
+ modelo1_sin_min_llam <- glm(cancela ~ dias_permanencia + packtv + carga_extra + hs_sin_conexion + llam_internac + tiempo_internac + dias_cortes, data = train, family = "binomial")
+  modelo1_sin_carga_extra <- glm(cancela ~ dias_permanencia + packtv + min_llam + hs_sin_conexion + llam_internac + tiempo_internac + dias_cortes, data = train, family = "binomial")
+  AIC(modelo1, modelo1_sin_min_llam, modelo1_sin_carga_extra)
+
+```
+
+Comparamos los modelos con anova (modelo1, modelo1_sin_min_llam, modelo1_sin_carga_extra):
+
+```{r echo=FALSE}
+  anova(modelo1, modelo1_sin_min_llam, modelo1_sin_carga_extra)
+```
+
+Finalmente, elegimos el **modelo1_sin_carga_extra** salvando la multicolinalidad. Además, el nuevo modelo resulta ser más parsimonioso que el modelo1 original.
+
+```{r echo=FALSE}
+  
+  # Elegimos el modelo1_sin_carga_extra
+  vif(modelo1_sin_carga_extra)
+```
+
+#### Datos influyentes
+
+Para detectar posibles puntos influyentes, además de los eliminados al principio, se calcula la distancia de Cook y los hatvalues.
+
+```{r echo=FALSE}
+### Datos influyentes
+  par(mfrow = c(1,1), mar = c(5,5,3,2) + 0.1)
+  car::influenceIndexPlot(modelo1_sin_carga_extra, vars = "Cook", id = TRUE,
+                          main = "Cook's Distance",
+                          col = "darkred", pch = 19, cex = 1.2)
+  car::influenceIndexPlot(modelo1_sin_carga_extra, vars = "hat", id = TRUE,
+                          main = "Leverages",
+                          col = "steelblue", pch = 19, cex = 1.2)
+  # Se observa que no hay datos influyentes, ya que fueron eliminados en pasos anteriores.
+```
+
+Si bien hay algunos puntos que sobresalen del resto del set de datos, no se consideran muy alejados por lo que se decide dejarlos.
+
+#### Análisis de independencia
+
+Otra condición necesaria para un modelo de regresión logística es que las observaciones sean **independientes**.
+
+Por lo tanto se procedió a evaluar la independencia a traves de los Residuos de Devianza:
+
+```{r echo=FALSE}
+
+  residuos <- residuals(modelo1_sin_carga_extra, type = "deviance")
+  
+  # Gráfico residuos vs índice
+  plot(residuos, pch = 19, col = "steelblue",
+       xlab = "Índice de observación", ylab = "Residuos deviance",
+       main = "Grafico de residuos para evaluar independencia")
+  abline(h = 0, col = "darkred", lty = 2)
+
+```
+
+Se puede observar que ambos grupos de datos están distribuidos aleatoriamente tanto arriba como debajo de la linea horizontal Y = 0. 
+
+**Esto nos indica que las observaciones son independientes.**
+
+### 3. Métodos de clasificación
+
+Se ajustaron modelos de clasificación con los métodos Naive Bayes, KNN y SVM.
+
+#### Naive Bayes
+
+```{r echo=FALSE}
+### Naive Bayes
+  set.seed(0123)
+  mod_bayes <- naiveBayes(cancela ~ ., data = train, laplace = 0)
+  mod_bayes
+```
+
+NB asume que hay más probabilidad de que cancela=no (85.84%) que cancela=si (14.15%).
+
+-   **Analisis de packtv**: P(packtv=yes \| Y=no) = 0.284 \> El 28% de los que no cancelaron, tenian el packtv. P(packtv=yes \| Y=yes) = 0.143 \> El 14% de los que cancelaron, tenian el packtv. Puede sugerir que tener el packtv está asociado a una menor probabilidad de que cancelen
+
+-   **Analisis de min_llam**: Muestra que la media de minutos de llamada para los que no cancelaron es de 175.28 y la media de minutos de llamada para los que cancelaron es de 206.02
+
+#### KNN
+
+Con este algoritmo se hicieron dos entrenamientos, uno eliminando packtv por ser categórica y otro incluyendo packtv utilizando la técnica de dummies.
+
+**Sin packtv** se obtuvo el siguiente resultado:
+
+```{r echo=FALSE}
+### knn
+  set.seed(0123)
+  knnEntrenadoNum <- train(cancela ~ . -packtv, 
+                           data = train, 
+                           method = "knn",  
+                           tuneLength = 10, # opcion para decir #valores de k que le pido que pruebe
+                           trControl = trainControl(method="cv", number = 5),
+                           preProcess = c("center","scale")
+  )
+  knnEntrenadoNum
+  
+```
+
+Por otro lado, utilizando dummies e incluyendo la variable packtv, se obtuvo:
+
+```{r echo=FALSE}
+### knn
+  set.seed(0123)
+  ## Se convierte factores en dummies
+  datos_dummies <- dummy_cols(datos, select_columns = c("packtv"),
+                              remove_selected_columns = T, remove_first_dummy = T)
+  
+  train2 <- datos_dummies[index, ]
+  test2 <- datos_dummies[-index, ]
+  knnEntrenado <- train(cancela ~ ., 
+                        data = train2, 
+                        method = "knn",  
+                        tuneLength = 20, # opcion para decir #valores de k que le pido que pruebe
+                        trControl = trainControl(method = "cv", number = 5),
+                        preProcess = c("center","scale")
+  )
+  knnEntrenado
+  
+```
+
+El algoritmo detectó que un valor de k = 7 (7 vecinos mas cercanos) es el mejor para clasificar casos nuevos.
+
+Se puede observar que la alternativa con dummies tiene una mayor precisión (accuracy 89,07%) y un mejor kappa (0,3604).
+
+Además, cabe destacar, que ambos obtuvieron un valor de Kappa muy bajo lo cual indica que los datos están desbalanceados en el dataset de entrenamiento. Esto quiere decir que el modelo puede llegar a tener problemas para predecir la clase minoritaria.
+
+#### SVM
+
+Se procede a utilizar los kernel radial, lineal y polinómico para ajustar 3 modelos distintos.
+
+**Modelo con kernel radial:** El mejor valor de costo es el 5 con una tasa de error de 9.75%. Eso indica que tiene buena precisión, un poco mayor al 90%.
+
+```{r echo=FALSE}
+ ### SVM
+  set.seed(0123)
+  svm_radial <- tune("svm", cancela ~ ., 
+                     data  = train, 
+                     probability = TRUE,
+                     kernel = 'radial',
+                     ranges = list(cost = c(0.01, 1, 5, 10, 50)))
+  summary(svm_radial)
+ 
+```
+
+**Modelo con kernel linear:** El mejor valor de costo es 0.001 con una tasa de error de 14.15%.
+
+Lo curioso de este modelo con kernel lineal es que todos los costos tienen la misma tasa de error.
+
+```{r echo=FALSE}
+ ### SVM
+  set.seed(0123)
+  svm_linear <- tune("svm", cancela ~ ., 
+                     data = train, 
+                     probability = TRUE,
+                     kernel = 'linear',
+                     ranges = list(cost = c(0.001, 0.01, 1, 5)))
+
+  summary(svm_linear)
+ 
+```
+
+**Modelo con kernel polynomial:** El mejor valor de costo es 5 con una tasa de error de 9.4%.
+
+```{r echo=FALSE}
+ ### SVM
+  set.seed(0123)
+  svm_polyn <- tune("svm", cancela ~ ., 
+                    data = train, 
+                    probability = TRUE,
+                    kernel = 'polynomial',
+                    ranges = list(cost = c(0.01, 1, 5, 10, 50)))
+  summary(svm_polyn)
+ 
+```
+
+**Evaluamos la relación entre errores y costos de cada uno**
+
+En los siguientes gráficos vemos la relación entre la tasa de error y los costos.
+
+```{r}
+  # Se muestra la relación entre errores y Costo
+  plot_radial = ggplot(data = svm_radial$performances, aes(x = cost, y = error)) +
+    geom_line() +
+    geom_point() +
+    labs(title = "Kernel Radial - Error de clasificación vs hiperparámetro C") +
+    theme_bw()
+  
+  plot_linear = ggplot(data = svm_linear$performances, aes(x = cost, y = error)) +
+    geom_line() +
+    geom_point() +
+    labs(title = "Kernel Lineal - Error de clasificación vs hiperparámetro C") +
+    theme_bw()
+  
+  plot_polyn = ggplot(data = svm_polyn$performances, aes(x = cost, y = error)) +
+    geom_line() +
+    geom_point() +
+    labs(title = "Kernel Polynomial -Error de clasificación vs hiperparámetro C") +
+    theme_bw()
+  
+  grid.arrange(plot_radial, plot_linear, plot_polyn)
+```
+
+### Evaluación de los modelos en Test
+
+A continuación se procede a probar la capacidad predictiva de los diferentes modelos analizando la matriz de confusión y el área bajo la curva ROC.
+
+```{r echo=FALSE}
+confusion_log <- function(nombre, modelo, test) {
+    pred <- predict.glm(modelo, newdata = test, type = "response")
+    predi_y <- ifelse(pred >= 0.5, "yes", "no")
+    tabla <- table(predi_y, test$cancela)
+    print(nombre)
+    print(tabla)
+    return (confusionMatrix(tabla, positive = "yes"))
+  }
+  confusion_bayes <- function(nombre, modelo, test) {
+    pred <- predict(modelo, newdata = test, type = "class")
+    tabla <- table(pred, test$cancela)
+    print(nombre)
+    print(tabla)
+    return (confusionMatrix(tabla, positive = "yes"))
+  }
+  confusion_knn <- function(nombre, modelo, test) {
+    pred <- predict(modelo, newdata = test)
+    tabla <- table(pred, test$cancela)
+    print(nombre)
+    print(tabla)
+    return (confusionMatrix(tabla, positive = "yes"))
+  }
+  confusion_svm <- function(nombre, modelo, test) {
+    pred <- predict(modelo, test, type = "class")
+    tabla <- table(pred, test$cancela)
+    print(nombre)
+    print(tabla)
+    return (confusionMatrix(tabla, positive = "yes"))
+  }
+  area_roc_log <- function(nombre, modelo, test) {
+    pred <- predict.glm(modelo, newdata = test, type = "response") 
+    predi <- prediction(pred, test$cancela)
+    roc  <- performance(predi, measure = "tpr", x.measure = "fpr")
+    plot(roc, main = paste("curva ROC ", nombre), colorize = T)
+    abline(a = 0, b = 1)
+    return (performance(predi, "auc")@y.values)
+  }
+  area_roc_bayes <- function(nombre, modelo, test) {
+    pred <- predict(modelo, newdata = test, type = "raw")
+    predi <- prediction(pred[,2], test$cancela)
+    roc <- performance(predi, measure = "tpr", x.measure = "fpr")
+    plot(roc, main = paste("curva ROC ", nombre), colorize = T)
+    abline(a = 0, b = 1)
+    return (performance(predi, "auc")@y.values)
+  }
+  area_roc_knn <- function(nombre, modelo, test) {
+    pred <- predict(modelo, newdata = test , type = "prob")
+    predi <- prediction(pred[,2], test$cancela)
+    roc <- performance(predi, measure = "tpr", x.measure = "fpr")
+    plot(roc, main = paste("curva ROC ", nombre), colorize = T)
+    abline(a = 0, b = 1)
+    return (performance(predi, "auc")@y.values)
+  }
+  area_roc_svm <- function(nombre, modelo, test) {
+    pred <- predict(modelo, test, type = "prob", probability = TRUE)
+    predi <- prediction(attr(pred, "probabilities")[,2], test$cancela)
+    roc <- performance(predi, measure = "tpr", x.measure = "fpr")
+    plot(roc, main = paste("curva ROC SVM ", nombre), colorize = T)
+    abline(a = 0, b = 1)
+    return (performance(predi, "auc")@y.values)
+  }
+  metricas <- function(nombre, conf, area) {
+    return (data.frame(
+      Model = nombre,
+      Accuracy = conf$overall["Accuracy"],
+      Sensitivity = conf$byClass["Sensitivity"],
+      Specificity = conf$byClass["Specificity"],
+      Precision = conf$byClass["Pos Pred Value"],
+      Area_ROC  = area[[1]]))
+  }
+  metricas_log <- function(nombre, modelo, test) {
+    return (metricas(nombre, confusion_log(nombre, modelo, test), area_roc_log(nombre, modelo, test)))    
+  }
+  metricas_bayes <- function(nombre, modelo, test) {
+    return (metricas(nombre, confusion_bayes(nombre, modelo, test), area_roc_bayes(nombre, modelo, test)))
+  }
+  metricas_knn <- function(nombre, modelo, test) {
+    return (metricas(nombre, confusion_knn(nombre, modelo, test), area_roc_knn(nombre, modelo, test)))
+  }
+  metricas_svm <- function(nombre, modelo, test) {
+    return (metricas(nombre, confusion_svm(nombre, modelo, test), area_roc_svm(nombre, modelo, test)))
+  }
+  m_modelo1 <- metricas_log("Regresión", modelo1, test)
+  m_bayes <- metricas_bayes("Naive Bayes", mod_bayes, test)
+  m_knn <- metricas_knn("KNN", knnEntrenado, test2)
+  m_radial <- metricas_svm("Radial", svm_radial$best.model, test)
+  m_linear <- metricas_svm("Linear", svm_linear$best.model, test)
+  m_polyn <- metricas_svm("Polinomial", svm_polyn$best.model, test)
+  m_combinado <- rbind(m_modelo1, m_bayes, m_knn, m_radial, m_linear, m_polyn)
+```
+
+En la tabla de predicción de cada modelo podemos observar variaciones en la combinación de:
+
+-   **Verdaderos Negativos**: El modelo predice correctamente que el cliente NO cancela.
+
+-   **Falsos Negativos**: El modelo predice que el cliente NO cancela cuando en realidad SI cancela.
+
+-   **Falsos Positivos**: El modelo predice que el cliente SI cancela cuando en realidad NO cancela.
+
+-   **Verdaderos Positivos**: El modelo predice correctamente que el cliente SI cancela.
+
+A los que hay que prestarle especial antención son a:
+
+-   **Falsos Negativos**: porque es un error costoso, son clientes que se podrían retener.
+
+-   **Verdaderos Positivos**: porque es el objetivo principal del modelo, que pueda predecir clientes que realmente van a cancelar.
+
+Por otro lado, analizando el gráfico ROC, observamos que todos tienen una pendiente inicial ascendente parecida y tiende a la curva ideal (se generan menos falsos positivos), hasta el 0.4, excepto el SVM Lineal que parece ser el menos indicado para este conjunto de datos.
+
+```{r echo=FALSE}
+  
+  kable(m_combinado, caption = "Comparación de Métricas entre Modelos", row.names = F)
+
+```
+
+Con estos resultados se debe tener en cuenta que:
+
+-   Se prioriza la SENSIBILIDAD cuando el costo del Falso Negativo es alto, pues se enfoca en minimizar los Falsos Negativos. En este caso, al predecir que un cliente NO cancelará y sí lo hace, perderíamoss un cliente sin intentar retenerlo.
+
+-   Se prioriza la ESPECIFICIDAD cuando el costo del Falso Positivo es alto, pues se enfoca en minimizar los Falsos Positivos. En este caso, al predecir que un cliente cancelará y no lo hace, se gastan recursos en un cliente que no estaba en riesgo de irse.
+
+Considerando eso, si la promoción especial es muy costosa para la empresa, habría que elegir el modelo que tenga mayor Sensibilidad.
+
+Cabe destacar que estos modelos, al priorizar los Falsos Negativos (caso de que un cliente no cancele cuando si lo hace), puede producir que no se le haga una promoción a un potencial cliente que va a cancelar.
+
+El modelo elegido, para la necesidad a resolver, es el modelo SVM Polinomial con una Precisión de 90.98%, una Sensibilidad del 39.15% y una Especificidad de casi el 100%, incluso siendo el que mayor área bajo la curva ROC tiene (0.73).
+
+El área bajo la curva ROC cercana al 0.8 habla de un modelo con buena capacidad de discriminación.
